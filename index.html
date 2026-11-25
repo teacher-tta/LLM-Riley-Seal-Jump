@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seal Jump 🦭</title>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #102d45;
+  color: white;
+  font-family: Arial, sans-serif;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
+
+#game {
+  width: 400px;
+  max-width: 100%;
+  text-align: center;
+}
+
+canvas {
+  width: 100%;
+  background: linear-gradient(#65c9e8, #d4f5ff);
+  border: 4px solid white;
+  border-radius: 15px;
+  display: block;
+}
+
+button {
+  background: #ffb52e;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 22px;
+  font-size: 17px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+#shop {
+  margin: 14px 0;
+  padding: 12px;
+  background: #1b4965;
+  border-radius: 12px;
+}
+
+#shop h2 {
+  margin: 0 0 8px;
+}
+
+#shop button {
+  margin: 4px;
+  padding: 9px 12px;
+  font-size: 14px;
+}
+
+#shopMessage {
+  min-height: 18px;
+  margin: 6px 0 0;
+}
+</style>
+</head>
+
+<body>
+<div id="game">
+  <h1>🦭 SEAL JUMP</h1>
+
+  <p>
+    Score: <span id="score">0</span>
+    | Best: <span id="best">0</span>
+    | 🪙 Coins: <span id="coins">0</span>
+  </p>
+
+  <canvas id="canvas" width="400" height="600"></canvas>
+
+  <p>A = Left | D = Right | SPACE = Jump</p>
+  <p>Collect coins and power-ups. Stomp monsters from above, or avoid them! Bigger monsters take more stomps, and the rare crowned Titan drops a power-up.</p>
+  <p style="font-size:13px;line-height:1.5">Platforms: ⚪ normal · ↔ moving · 🟤 breaking · 👻 disappearing · 🟢 bouncy · 🧊 icy · ➡️ conveyor</p>
+
+  <div id="shop">
+    <h2>🛒 Seal Shop</h2>
+    <p>Spend coins on one-use items (5 coins each):</p>
+    <button onclick="buyItem('jump')">🚀 Jump Boost — 5</button>
+    <button onclick="buyItem('feather')">🪶 Feather Fall — 5</button>
+    <button onclick="buyItem('shield')">🛡️ Shield — 5</button>
+    <button onclick="buyItem('magnet')">🧲 Coin Magnet — 5</button>
+    <button onclick="buyItem('double')">💰 Double Coins — 5</button>
+    <p id="shopMessage" aria-live="polite"></p>
+  </div>
+
+  <button onclick="restart()">🔄 Restart</button>
+</div>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+let score = 0;
+let heightScore = 0;
+let best = 0;
+try { best = Number(localStorage.getItem("sealBest") || 0); } catch (e) {}
+let camera = 0;
+let gameOver = false;
+
+let keys = {};
+let jumpHeld = false;
+let jumpBoost = 0;
+let canBoost = false; // true only for a jump that started from the ground
+let coinsCollected = 0;   // coins you can spend
+let coinScore = 0;        // points earned from coins (not reduced by shopping)
+
+let activePower = null;
+let powerTimer = 0;
+let platformCount = 0;
+let lastUnsafe = false;   // was the last generated platform breaking/disappearing?
+let standingType = null;  // type of platform the seal stood on last frame
+let banner = { text: "", timer: 0 };
+
+const POWER_DURATION = 600;
+const SHOP_PRICE = 5;
+const POWER_EVERY = 20;   // a power-up appears every N platforms (was 8)
+
+const powerTypes = {
+  jump: { name: "SUPER JUMP", icon: "🚀", color: "#ff8c24" },
+  uncontrollable: { name: "UNCONTROLLABLE CHARACTER", icon: "🌀", color: "#ff4d6d" },
+  feather: { name: "FEATHER FALL", icon: "🪶", color: "#a66cff" },
+  shield: { name: "SHIELD", icon: "🛡️", color: "#3fa9ff" },
+  magnet: { name: "COIN MAGNET", icon: "🧲", color: "#e0457b" },
+  double: { name: "DOUBLE COINS", icon: "💰", color: "#2bbf6a" }
+};
+
+// Uncontrollable Character is NOT sold in the shop
+const shopItems = ["jump", "feather", "shield", "magnet", "double"];
+
+document.getElementById("best").textContent = best;
+
+const seal = {
+  x: 180,
+  y: 480,
+  vx: 0,
+  vy: 0,
+  width: 44,
+  height: 38,
+  grounded: false,
+  facing: 1
+};
+
+let platforms = [];
+let monsters = [];
+
+function getDifficulty() {
+  return Math.min(heightScore / 1000, 5);
+}
+
+function makePlatform(x, y, difficulty = 0) {
+  platformCount++;
+
+  // Pick a platform type (special types start after the first few platforms)
+  const d = difficulty;
+  let type = "normal";
+
+  if (platformCount > 6) {
+    const r = Math.random();
+    let acc = 0.09 + d * 0.015;               // breaking
+    if (r < acc) type = "breaking";
+    else if (r < (acc += 0.08 + d * 0.015)) type = "disappearing";
+    else if (r < (acc += 0.07)) type = "bouncy";
+    else if (r < (acc += 0.07 + d * 0.01)) type = "icy";
+    else if (r < (acc += 0.06)) type = "conveyor";
+  }
+
+  // Never place two unreliable platforms in a row, so there is always a safe path
+  const unsafe = type === "breaking" || type === "disappearing";
+  if (unsafe && lastUnsafe) type = "normal";
+  lastUnsafe = type === "breaking" || type === "disappearing";
+
+  if (type === "normal" && Math.random() < Math.min(0.25 + d * 0.12, 0.85)) {
+    type = "moving";
+  }
+
+  const moving = type === "moving";
+  let hasCoin = Math.random() < 0.4;
+
+  let hasPower = platformCount % POWER_EVERY === 0;
+  const powerKeys = Object.keys(powerTypes);
+
+  return {
+    x,
+    y,
+    w: 75,
+    h: 13,
+    type,
+    state: "idle",
+    timer: 0,
+    dead: false,
+    fallV: 0,
+    squash: 0,
+    dir: Math.random() < 0.5 ? -1 : 1,
+    moving,
+    vx: moving
+      ? (Math.random() < 0.5 ? -1 : 1) *
+        (0.8 + difficulty * 0.55 + Math.random() * 0.5)
+      : 0,
+
+    coin: hasCoin ? {
+      offsetX: 37,
+      collected: false,
+      bob: Math.random() * Math.PI * 2
+    } : null,
+
+    powerUp: hasPower ? {
+      offsetX: 37,
+      type: powerKeys[Math.floor(Math.random() * powerKeys.length)],
+      collected: false,
+      bob: Math.random() * Math.PI * 2
+    } : null
+  };
+}
+
+// Bigger monsters are stronger: more HP (stomps needed), slower, worth more points
+const monsterTypes = {
+  grunt: { w: 40,  h: 36,  hp: 1, color: "#8e44ad", dark: "#5b2a86", speed: 1,    score: 25 },
+  brute: { w: 58,  h: 52,  hp: 2, color: "#27ae60", dark: "#176b3a", speed: 0.85, score: 50 },
+  giant: { w: 80,  h: 72,  hp: 3, color: "#2980b9", dark: "#154a73", speed: 0.7,  score: 100 },
+  titan: { w: 116, h: 104, hp: 6, color: "#c62828", dark: "#4a0a0a", speed: 0.55, score: 300 }
+};
+
+function pickMonsterType() {
+  // Very rare boss: only high up, and only one at a time
+  if (heightScore > 1500 && !monsters.some(m => m.boss) && Math.random() < 0.07) {
+    return "titan";
+  }
+
+  const pool = [["grunt", 5]];
+  if (heightScore > 500) pool.push(["brute", 3]);
+  if (heightScore > 1000) pool.push(["giant", 2]);
+
+  const total = pool.reduce((sum, entry) => sum + entry[1], 0);
+  let r = Math.random() * total;
+
+  for (const [kind, weight] of pool) {
+    r -= weight;
+    if (r < 0) return kind;
+  }
+
+  return "grunt";
+}
+
+function makeMonster(y, difficulty, kind = "grunt") {
+  const t = monsterTypes[kind];
+  const baseSpeed = 0.6 + difficulty * 0.3 + Math.random() * 0.5;
+
+  return {
+    kind,
+    boss: kind === "titan",
+    x: Math.random() * (400 - t.w),
+    y: y - (t.h - 36) / 2,
+    w: t.w,
+    h: t.h,
+    hp: t.hp,
+    maxHp: t.hp,
+    color: t.color,
+    dark: t.dark,
+    score: t.score,
+    cool: 0, // brief invulnerability after being hit
+    vx: (Math.random() < 0.5 ? -1 : 1) * baseSpeed * t.speed,
+    bob: Math.random() * Math.PI * 2
+  };
+}
+
+// Returns true if the monster died
+function hitMonster(i) {
+  const m = monsters[i];
+  m.hp--;
+  m.cool = 25;
+
+  if (m.hp > 0) return false;
+
+  monsters.splice(i, 1);
+  coinScore += m.score;
+
+  if (m.boss) {
+    // The Titan drops a random good power-up
+    const options = Object.keys(powerTypes).filter(k => k !== "uncontrollable");
+    const type = options[Math.floor(Math.random() * options.length)];
+    givePower(type);
+    banner = {
+      text: "TITAN DEFEATED! " + powerTypes[type].icon + " " + powerTypes[type].name,
+      timer: 150
+    };
+  }
+
+  return true;
+}
+
+function restart() {
+  seal.x = 180;
+  seal.y = 480;
+  seal.vx = 0;
+  seal.vy = 0;
+  seal.grounded = false;
+  seal.facing = 1;
+
+  camera = 0;
+  score = 0;
+  heightScore = 0;
+  jumpBoost = 0;
+  jumpHeld = false;
+  canBoost = false;
+  gameOver = false;
+  coinsCollected = 0;
+  coinScore = 0;
+
+  activePower = null;
+  powerTimer = 0;
+  platformCount = 0;
+  lastUnsafe = false;
+  standingType = null;
+  banner = { text: "", timer: 0 };
+  keys = {};
+  monsters = [];
+
+  document.getElementById("shopMessage").textContent = "";
+
+  platforms = [{
+    x: 160,
+    y: 530,
+    w: 75,
+    h: 13,
+    moving: false,
+    vx: 0,
+    type: "normal",
+    state: "idle",
+    timer: 0,
+    dead: false,
+    fallV: 0,
+    squash: 0,
+    dir: 1,
+    coin: null,
+    powerUp: null
+  }];
+
+  for (let i = 0; i < 12; i++) {
+    platforms.push(
+      makePlatform(Math.random() * 320, 455 - i * 75)
+    );
+  }
+
+  updateUI();
+}
+
+function updateUI() {
+  document.getElementById("score").textContent = score;
+  document.getElementById("coins").textContent = coinsCollected;
+  document.getElementById("best").textContent = best;
+}
+
+function givePower(type) {
+  activePower = type;
+  powerTimer = POWER_DURATION;
+
+  if (type === "jump") {
+    seal.vy = Math.min(seal.vy, -12);
+    jumpBoost = 0;
+  }
+}
+
+function buyItem(type) {
+  const message = document.getElementById("shopMessage");
+
+  if (!shopItems.includes(type)) {
+    message.textContent = "That power-up can't be bought!";
+    return;
+  }
+
+  if (gameOver) {
+    message.textContent = "Restart the game before shopping.";
+    return;
+  }
+
+  if (coinsCollected < SHOP_PRICE) {
+    message.textContent = `You need ${SHOP_PRICE} coins to buy that.`;
+    return;
+  }
+
+  if (activePower !== null) {
+    message.textContent = "Wait until your current power-up expires.";
+    return;
+  }
+
+  coinsCollected -= SHOP_PRICE;
+  givePower(type);
+
+  updateUI();
+  message.textContent = `${powerTypes[type].name} purchased!`;
+}
+
+function drawSeal() {
+  ctx.save();
+  ctx.translate(seal.x + 22, seal.y - camera + 19);
+
+  // Shield bubble
+  if (activePower === "shield") {
+    ctx.strokeStyle = "rgba(63,169,255,0.9)";
+    ctx.fillStyle = "rgba(63,169,255,0.2)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, -2, 32, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  ctx.scale(seal.facing, 1);
+
+  ctx.fillStyle = "#687d91";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 23, 17, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#dce9ed";
+  ctx.beginPath();
+  ctx.ellipse(0, 6, 14, 9, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#687d91";
+  ctx.beginPath();
+  ctx.arc(14, -8, 12, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "white";
+  ctx.beginPath();
+  ctx.arc(17, -11, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#172b3b";
+  ctx.beginPath();
+  ctx.arc(18, -11, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#263744";
+  ctx.beginPath();
+  ctx.arc(25, -5, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#536d82";
+  ctx.beginPath();
+  ctx.moveTo(-19, 2);
+  ctx.lineTo(-32, -8);
+  ctx.lineTo(-29, 9);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawPlatform(p) {
+  const sy = p.y - camera;
+
+  if (p.type === "normal" || p.type === "moving") {
+    drawNormalPlatform(p);
+    return;
+  }
+
+  if (p.type === "breaking") {
+    if (p.dead) {
+      // two halves tumbling away
+      const spread = p.fallV * 1.5;
+      const alpha = Math.max(0, 1 - p.fallV / 14);
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = "#a0693a";
+        ctx.translate(p.x + p.w / 2 + side * (p.w / 4 + spread), sy + p.h / 2);
+        ctx.rotate(side * p.fallV * 0.05);
+        ctx.fillRect(-p.w / 4, -p.h / 2, p.w / 2, p.h);
+        ctx.restore();
+      }
+      return;
+    }
+
+    const sh = p.state === "cracking" ? (Math.random() - 0.5) * 3 : 0;
+    ctx.fillStyle = "#b9814c";
+    ctx.beginPath();
+    ctx.roundRect(p.x + sh, sy, p.w, p.h, 5);
+    ctx.fill();
+    ctx.fillStyle = "#7a4b24";
+    ctx.fillRect(p.x + sh + 5, sy + 5, p.w - 10, 5);
+    ctx.strokeStyle = "#3d2210";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(p.x + sh + 26, sy);
+    ctx.lineTo(p.x + sh + 33, sy + 6);
+    ctx.lineTo(p.x + sh + 28, sy + p.h);
+    ctx.moveTo(p.x + sh + 50, sy);
+    ctx.lineTo(p.x + sh + 45, sy + 7);
+    ctx.lineTo(p.x + sh + 50, sy + p.h);
+    ctx.stroke();
+    return;
+  }
+
+  if (p.dead) return;
+
+  if (p.type === "disappearing") {
+    const a = p.state === "fading" ? Math.max(0.15, p.timer / 45) : 1;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.fillStyle = "#eadfff";
+    ctx.beginPath();
+    ctx.roundRect(p.x, sy, p.w, p.h, 7);
+    ctx.fill();
+    ctx.fillStyle = "#b196f0";
+    ctx.fillRect(p.x + 5, sy + 5, p.w - 10, 5);
+    ctx.strokeStyle = "#8a6ee0";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.roundRect(p.x + 1, sy + 1, p.w - 2, p.h - 2, 6);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+    return;
+  }
+
+  if (p.type === "bouncy") {
+    const sq = p.squash / 10;
+    const h = p.h * (1 - 0.45 * sq);
+    const y = sy + (p.h - h);
+    ctx.fillStyle = "#3ed16b";
+    ctx.beginPath();
+    ctx.roundRect(p.x, y, p.w, h, 7);
+    ctx.fill();
+    ctx.fillStyle = "#1e9c47";
+    ctx.fillRect(p.x + 5, y + h - 5, p.w - 10, 4);
+    ctx.fillStyle = "white";
+    ctx.font = "bold 9px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("▲  ▲  ▲", p.x + p.w / 2, y + h / 2 - 1);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    return;
+  }
+
+  if (p.type === "icy") {
+    ctx.fillStyle = "#c9f1ff";
+    ctx.beginPath();
+    ctx.roundRect(p.x, sy, p.w, p.h, 7);
+    ctx.fill();
+    ctx.strokeStyle = "#4fc3f7";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,0.95)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let x = p.x + 10; x < p.x + p.w - 8; x += 16) {
+      ctx.moveTo(x, sy + 10);
+      ctx.lineTo(x + 7, sy + 3);
+    }
+    ctx.stroke();
+    return;
+  }
+
+  if (p.type === "conveyor") {
+    ctx.fillStyle = "#55606e";
+    ctx.beginPath();
+    ctx.roundRect(p.x, sy, p.w, p.h, 6);
+    ctx.fill();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(p.x, sy, p.w, p.h, 6);
+    ctx.clip();
+    ctx.fillStyle = "#ffd54a";
+    const off = (((Date.now() / 50) * p.dir) % 14 + 14) % 14;
+    for (let x = p.x - 14; x < p.x + p.w + 14; x += 14) {
+      const cx = x + off;
+      ctx.beginPath();
+      ctx.moveTo(cx, sy + 3);
+      ctx.lineTo(cx + 6 * p.dir, sy + p.h / 2);
+      ctx.lineTo(cx, sy + p.h - 3);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+    return;
+  }
+}
+
+function drawNormalPlatform(p) {
+  let screenY = p.y - camera;
+
+  ctx.fillStyle = p.moving ? "#d5f8ff" : "white";
+  ctx.beginPath();
+  ctx.roundRect(p.x, screenY, p.w, p.h, 7);
+  ctx.fill();
+
+  ctx.fillStyle = p.moving ? "#40b9df" : "#83d8ef";
+  ctx.fillRect(p.x + 5, screenY + 5, p.w - 10, 5);
+
+  if (p.moving) {
+    ctx.fillStyle = "#218cae";
+    ctx.font = "10px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("↔", p.x + p.w / 2, screenY - 3);
+    ctx.textAlign = "left";
+  }
+}
+
+function drawCoin(p) {
+  if (!p.coin || p.coin.collected) return;
+
+  let coinX = p.x + p.coin.offsetX;
+  let coinY = p.y - camera - 28 + Math.sin(p.coin.bob) * 4;
+
+  ctx.save();
+  ctx.shadowColor = "#ffcf32";
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = "#ffca28";
+  ctx.beginPath();
+  ctx.arc(coinX, coinY, 11, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "#e89b00";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.fillStyle = "#b87500";
+  ctx.font = "bold 13px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("$", coinX, coinY);
+  ctx.restore();
+}
+
+function drawPowerUp(p) {
+  if (!p.powerUp || p.powerUp.collected) return;
+
+  const power = powerTypes[p.powerUp.type];
+  let x = p.x + p.powerUp.offsetX;
+  let y = p.y - camera - 32 + Math.sin(p.powerUp.bob) * 5;
+
+  ctx.save();
+  ctx.shadowColor = power.color;
+  ctx.shadowBlur = 18;
+  ctx.fillStyle = power.color;
+  ctx.beginPath();
+  ctx.arc(x, y, 15, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "white";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.font = "17px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(power.icon, x, y);
+  ctx.restore();
+}
+
+function drawMonster(m) {
+  const cx = m.x + m.w / 2;
+  const cy = m.y - camera + m.h / 2 + Math.sin(m.bob) * 4;
+
+  const s = m.w / 40; // every monster is drawn from the same design, scaled up
+
+  ctx.save();
+  if (m.cool > 0 && Math.floor(m.cool / 4) % 2 === 0) ctx.globalAlpha = 0.4;
+  if (m.boss) {
+    ctx.shadowColor = "#ffd700";
+    ctx.shadowBlur = 25;
+  }
+  ctx.translate(cx, cy);
+  ctx.scale(s, s);
+
+  // spikes
+  ctx.fillStyle = m.dark;
+  for (let i = 0; i < 5; i++) {
+    const a = Math.PI + (i / 4) * Math.PI;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a - 0.22) * 17, Math.sin(a - 0.22) * 15);
+    ctx.lineTo(Math.cos(a) * 27, Math.sin(a) * 25);
+    ctx.lineTo(Math.cos(a + 0.22) * 17, Math.sin(a + 0.22) * 15);
+    ctx.fill();
+  }
+
+  // body
+  ctx.fillStyle = m.color;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 20, 18, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // eyes
+  ctx.fillStyle = "white";
+  ctx.beginPath();
+  ctx.arc(-7, -4, 5, 0, Math.PI * 2);
+  ctx.arc(7, -4, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#c0392b";
+  ctx.beginPath();
+  ctx.arc(-6, -3, 2.3, 0, Math.PI * 2);
+  ctx.arc(6, -3, 2.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // angry brows
+  ctx.strokeStyle = "#2c0f40";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(-13, -11); ctx.lineTo(-3, -7);
+  ctx.moveTo(13, -11); ctx.lineTo(3, -7);
+  ctx.stroke();
+
+  // teeth
+  ctx.fillStyle = "white";
+  ctx.beginPath();
+  ctx.moveTo(-9, 6); ctx.lineTo(-5, 12); ctx.lineTo(-1, 6);
+  ctx.moveTo(1, 6); ctx.lineTo(5, 12); ctx.lineTo(9, 6);
+  ctx.fill();
+
+  ctx.restore();
+
+  // health bar for monsters that take more than one stomp
+  if (m.maxHp > 1) {
+    const bw = Math.max(44, m.w * 0.9);
+    const bx = cx - bw / 2;
+    const by = cy - 27 * s - 12;
+
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(bx - 1, by - 1, bw + 2, 8);
+    ctx.fillStyle = m.boss ? "#ffd700" : "#ff5252";
+    ctx.fillRect(bx, by, bw * (m.hp / m.maxHp), 6);
+
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    for (let i = 1; i < m.maxHp; i++) {
+      ctx.fillRect(bx + (bw * i) / m.maxHp - 0.5, by, 1, 6);
+    }
+  }
+
+  if (m.boss) {
+    ctx.font = "26px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("👑", cx, cy - 27 * s - 26);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+  }
+}
+
+function drawBackground() {
+  ctx.fillStyle = "rgba(255,255,255,0.6)";
+
+  for (let i = 0; i < 10; i++) {
+    let x = (i * 83 + 30) % 400;
+    let y = (i * 113 + camera * 0.25) % 600;
+
+    ctx.beginPath();
+    ctx.arc(x, y, 3 + i % 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function updatePlatforms() {
+  for (let p of platforms) {
+    // breaking / disappearing platforms count down once stepped on
+    if (p.state === "cracking" || p.state === "fading") {
+      p.timer--;
+
+      if (p.timer <= 0) {
+        p.dead = true;
+        p.state = p.type === "breaking" ? "broken" : "gone";
+      }
+    }
+
+    if (p.state === "broken") {
+      p.fallV += 0.5;
+      p.y += p.fallV;
+    }
+
+    if (p.squash > 0) p.squash--;
+
+    if (p.moving) {
+      p.x += p.vx;
+
+      if (p.x <= 0) {
+        p.x = 0;
+        p.vx = Math.abs(p.vx);
+      }
+
+      if (p.x + p.w >= 400) {
+        p.x = 400 - p.w;
+        p.vx = -Math.abs(p.vx);
+      }
+    }
+
+    if (p.coin && !p.coin.collected) {
+      p.coin.bob += 0.06;
+    }
+
+    if (p.powerUp && !p.powerUp.collected) {
+      p.powerUp.bob += 0.07;
+    }
+  }
+}
+
+function updateMonsters() {
+  if (banner.timer > 0) banner.timer--;
+
+  for (let m of monsters) {
+    if (m.cool > 0) m.cool--;
+    m.x += m.vx;
+    m.bob += 0.08;
+
+    if (m.x <= 0) {
+      m.x = 0;
+      m.vx = Math.abs(m.vx);
+    }
+
+    if (m.x + m.w >= 400) {
+      m.x = 400 - m.w;
+      m.vx = -Math.abs(m.vx);
+    }
+  }
+}
+
+function checkMonsters() {
+  for (let i = monsters.length - 1; i >= 0; i--) {
+    const m = monsters[i];
+    const dx = (seal.x + 22) - (m.x + m.w / 2);
+    const dy = (seal.y + 19) - (m.y + m.h / 2);
+
+    if (m.cool <= 0 && Math.abs(dx) < m.w / 2 + 10 && Math.abs(dy) < m.h / 2 + 10) {
+      const stomped = seal.vy > 0 && (seal.y + 38 - seal.vy) <= m.y + m.h * 0.4;
+
+      if (stomped) {
+        // Stomp from above: damage the monster and bounce
+        seal.vy = -9;
+        jumpBoost = 0;
+        hitMonster(i);
+      } else if (activePower === "shield") {
+        // Shield absorbs the hit, damages the monster, and breaks
+        activePower = null;
+        powerTimer = 0;
+        if (!hitMonster(i)) monsters[i].cool = 90;
+      } else {
+        gameOver = true;
+        return;
+      }
+    }
+  }
+}
+
+function collectCoins() {
+  const magnet = activePower === "magnet";
+  const radius = magnet ? 110 : 25;
+  const value = activePower === "double" ? 2 : 1;
+
+  for (let p of platforms) {
+    if (!p.coin || p.coin.collected) continue;
+
+    let coinX = p.x + p.coin.offsetX;
+    let coinY = p.y - 28 + Math.sin(p.coin.bob) * 4;
+    let sealCenterX = seal.x + 22;
+    let sealCenterY = seal.y + 19;
+
+    let dx = sealCenterX - coinX;
+    let dy = sealCenterY - coinY;
+
+    if (Math.sqrt(dx * dx + dy * dy) < radius) {
+      p.coin.collected = true;
+      coinsCollected += value;
+      coinScore += 10 * value;
+      updateUI();
+    }
+  }
+}
+
+function collectPowerUps() {
+  for (let p of platforms) {
+    if (!p.powerUp || p.powerUp.collected) continue;
+
+    let powerX = p.x + p.powerUp.offsetX;
+    let powerY = p.y - 32 + Math.sin(p.powerUp.bob) * 5;
+    let sealX = seal.x + 22;
+    let sealY = seal.y + 19;
+
+    let dx = sealX - powerX;
+    let dy = sealY - powerY;
+
+    if (Math.sqrt(dx * dx + dy * dy) < 28) {
+      p.powerUp.collected = true;
+      givePower(p.powerUp.type);
+    }
+  }
+}
+
+function updatePower() {
+  if (activePower === null) return;
+
+  powerTimer--;
+
+  if (powerTimer <= 0) {
+    activePower = null;
+    powerTimer = 0;
+  }
+}
+
+// Horizontal overlap that also works across the screen-wrap edges
+function overlapsPlatformX(p) {
+  for (const off of [0, -400, 400]) {
+    const sx = seal.x + off;
+    if (sx + 38 > p.x && sx + 5 < p.x + p.w) return true;
+  }
+  return false;
+}
+
+function update() {
+  if (gameOver) return;
+
+  const difficulty = getDifficulty();
+  updatePower();
+
+  const wild = activePower === "uncontrollable";
+  let acceleration = wild ? 1.1 : 0.55;
+  const onIce = standingType === "icy";
+  if (onIce && !wild) acceleration *= 0.45;
+  let maxSpeed = 5 + difficulty * 0.35;
+
+  if (wild) {
+    maxSpeed *= 2.2;
+  }
+
+  if (keys["a"]) {
+    seal.vx -= acceleration;
+    seal.facing = -1;
+  }
+
+  if (keys["d"]) {
+    seal.vx += acceleration;
+    seal.facing = 1;
+  }
+
+  if (!keys["a"] && !keys["d"]) {
+    // Uncontrollable character barely slows down
+    seal.vx *= wild ? 0.99 : (onIce ? 0.985 : 0.88);
+  }
+
+  if (wild) {
+    // Random wobble makes the seal hard to steer
+    seal.vx += (Math.random() - 0.5) * 1.4;
+  }
+
+  seal.vx = Math.max(-maxSpeed, Math.min(maxSpeed, seal.vx));
+  seal.x += seal.vx;
+  seal.x = (seal.x + 400) % 400;
+
+  updatePlatforms();
+  updateMonsters();
+
+  const gravity = activePower === "feather" ? 0.12 : 0.32;
+
+  if (jumpHeld && canBoost && seal.vy < 0 && jumpBoost < 18) {
+    seal.vy -= activePower === "jump" ? 0.35 : 0.18;
+    jumpBoost++;
+  }
+
+  seal.vy += gravity;
+  const prevBottom = seal.y + 38; // measured before moving, so no float drift
+  seal.y += seal.vy;
+
+  seal.grounded = false;
+  standingType = null;
+
+  for (let p of platforms) {
+    if (
+      !p.dead &&
+      seal.vy > 0 &&
+      overlapsPlatformX(p) &&
+      seal.y + 38 >= p.y &&
+      prevBottom <= p.y + 1
+    ) {
+      seal.y = p.y - 38;
+      seal.vy = 0;
+      seal.grounded = true;
+      canBoost = false;
+      standingType = p.type;
+
+      if (p.type === "breaking" && p.state === "idle") {
+        p.state = "cracking";
+        p.timer = 30;
+      }
+
+      if (p.type === "disappearing" && p.state === "idle") {
+        p.state = "fading";
+        p.timer = 45;
+      }
+
+      if (p.type === "bouncy") {
+        seal.vy = -14;
+        seal.grounded = false;
+        standingType = null;
+        p.squash = 10;
+      }
+
+      if (p.type === "conveyor") {
+        seal.x += p.dir * 1.6;
+        seal.x = (seal.x + 400) % 400;
+      }
+
+      if (p.moving) {
+        seal.x += p.vx;
+        seal.x = (seal.x + 400) % 400;
+      }
+    }
+  }
+
+  collectCoins();
+  collectPowerUps();
+  checkMonsters();
+
+  if (seal.y - camera < 220) {
+    camera = seal.y - 220;
+  }
+
+  heightScore = Math.max(heightScore, Math.floor(-camera));
+  score = heightScore + coinScore;
+
+  if (score > best) {
+    best = score;
+    try { localStorage.setItem("sealBest", best); } catch (e) {}
+  }
+
+  updateUI();
+
+  while (platforms.length < 14) {
+    let highest = Math.min(...platforms.map(p => p.y));
+    let gap = 65 + Math.random() * (25 + difficulty * 7);
+
+    platforms.push(
+      makePlatform(Math.random() * 320, highest - gap, difficulty)
+    );
+
+    // Monsters appear after the first stretch and get more common higher up
+    if (heightScore > 200 && Math.random() < 0.12 + difficulty * 0.05) {
+      monsters.push(makeMonster(highest - gap * 0.5 - 18, difficulty, pickMonsterType()));
+    }
+  }
+
+  platforms = platforms.filter(p => p.y - camera < 650);
+  monsters = monsters.filter(m => m.y - camera < 650);
+
+  if (seal.y - camera > 630) {
+    gameOver = true;
+  }
+}
+
+function startJump() {
+  if (gameOver || jumpHeld) return;
+
+  jumpHeld = true;
+
+  // Only a grounded press starts a jump (and its hold-to-boost).
+  // Pressing space in mid-air does nothing, so spamming can't fly.
+  if (seal.grounded) {
+    jumpBoost = 0;
+    canBoost = true;
+    seal.vy = activePower === "jump" ? -13 : -8;
+    seal.grounded = false;
+  }
+}
+
+function stopJump() {
+  const cutJump = canBoost;   // only shorten real jumps, not bounces
+  jumpHeld = false;
+  canBoost = false;
+
+  if (cutJump && seal.vy < -4) {
+    seal.vy *= 0.65;
+  }
+}
+
+document.addEventListener("keydown", e => {
+  let key = e.key.toLowerCase();
+
+  if (key === " " || key === "a" || key === "d") {
+    e.preventDefault();
+  }
+
+  if (gameOver) return;
+
+  if (key === "a" || key === "d") {
+    keys[key] = true;
+  }
+
+  if (key === " " && !e.repeat) {
+    startJump();
+  }
+});
+
+document.addEventListener("keyup", e => {
+  let key = e.key.toLowerCase();
+
+  if (key === "a" || key === "d") {
+    keys[key] = false;
+  }
+
+  if (key === " ") {
+    stopJump();
+  }
+});
+
+function drawBanner() {
+  if (banner.timer <= 0) return;
+
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, banner.timer / 30);
+  ctx.fillStyle = "rgba(10,40,65,0.92)";
+  ctx.beginPath();
+  ctx.roundRect(40, 105, 320, 46, 12);
+  ctx.fill();
+  ctx.strokeStyle = "#ffd700";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = "#ffd700";
+  ctx.font = "bold 15px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(banner.text, 200, 128);
+  ctx.restore();
+}
+
+function drawPowerHUD() {
+  if (!activePower) return;
+
+  const power = powerTypes[activePower];
+  let seconds = Math.ceil(powerTimer / 60);
+
+  ctx.fillStyle = "rgba(10,40,65,0.85)";
+  ctx.beginPath();
+  ctx.roundRect(95, 45, 210, 43, 10);
+  ctx.fill();
+
+  ctx.fillStyle = power.color;
+  ctx.font = "bold 12px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText(power.icon + " " + power.name, 200, 62);
+
+  ctx.fillStyle = "#526b7c";
+  ctx.fillRect(130, 69, 140, 6);
+
+  ctx.fillStyle = power.color;
+  ctx.fillRect(130, 69, 140 * (powerTimer / POWER_DURATION), 6);
+
+  ctx.fillStyle = "white";
+  ctx.font = "10px Arial";
+  ctx.fillText(seconds + "s", 200, 85);
+
+  ctx.textAlign = "left";
+}
+
+function draw() {
+  ctx.clearRect(0, 0, 400, 600);
+  drawBackground();
+
+  for (let p of platforms) {
+    drawPlatform(p);
+    drawCoin(p);
+    drawPowerUp(p);
+  }
+
+  for (let m of monsters) {
+    drawMonster(m);
+  }
+
+  drawSeal();
+
+  ctx.fillStyle = "white";
+  ctx.fillRect(12, 12, 104, 13);
+
+  ctx.fillStyle = "#ffad28";
+  ctx.fillRect(14, 14, jumpBoost * 5, 9);
+
+  ctx.fillStyle = "#153e55";
+  ctx.font = "12px Arial";
+  ctx.fillText("JUMP POWER", 12, 39);
+
+  let level = Math.floor(getDifficulty()) + 1;
+  ctx.fillStyle = "#153e55";
+  ctx.font = "bold 14px Arial";
+  ctx.textAlign = "right";
+  ctx.fillText("LEVEL " + level, 388, 28);
+  ctx.textAlign = "left";
+
+  drawPowerHUD();
+  drawBanner();
+
+  if (gameOver) {
+    ctx.fillStyle = "rgba(0,30,50,0.75)";
+    ctx.fillRect(0, 0, 400, 600);
+
+    ctx.fillStyle = "white";
+    ctx.textAlign = "center";
+
+    ctx.font = "bold 36px Arial";
+    ctx.fillText("GAME OVER!", 200, 270);
+
+    ctx.font = "20px Arial";
+    ctx.fillText("Score: " + score, 200, 310);
+    ctx.fillText("Coins: " + coinsCollected, 200, 340);
+    ctx.fillText("Press RESTART to play again", 200, 380);
+
+    ctx.textAlign = "left";
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+restart();
+loop();
+</script>
+</body>
+</html>
