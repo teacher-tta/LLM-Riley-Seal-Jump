@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Seal Jump 🦭</title>
 
 <style>
@@ -17,6 +17,9 @@ body {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
+  padding: env(safe-area-inset-top, 0px) 8px env(safe-area-inset-bottom, 0px);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
 }
 
 #game {
@@ -27,6 +30,9 @@ body {
 
 canvas {
   width: 100%;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
   background: linear-gradient(#65c9e8, #d4f5ff);
   border: 4px solid white;
   border-radius: 15px;
@@ -64,12 +70,142 @@ button {
   min-height: 18px;
   margin: 6px 0 0;
 }
+
+/* Mobile controls (only shown on touch devices) */
+#touchControls, #tiltBtn { display: none; }
+
+body.touch #touchControls {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0 6px;
+}
+
+body.touch #tiltBtn {
+  display: inline-block;
+  margin-bottom: 4px;
+}
+
+#touchControls button {
+  flex: 1;
+  padding: 18px 0;
+  font-size: 20px;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#jumpBtn { flex: 2; background: #5ee08a; }
+
+#tiltMsg {
+  min-height: 18px;
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+/* Hard mode fake crash (score 3000+) */
+#crashOverlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: hidden;
+  font-family: "Courier New", monospace;
+}
+#crashOverlay.active { display: block; }
+#crashOverlay.black { background: #000; }
+
+.crashText {
+  color: #39ff14;
+  padding: 70px 20px;
+  text-align: center;
+  font-size: 18px;
+  line-height: 1.7;
+}
+
+#crashClose {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  right: 8px;
+  z-index: 1100;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.fakeWin {
+  position: absolute;
+  width: min(260px, 80vw);
+  background: #fff;
+  color: #222;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.6);
+  overflow: hidden;
+  text-align: left;
+  font-family: Arial, sans-serif;
+  animation: popIn 0.18s ease-out;
+}
+.fakeTabBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #c62828;
+  color: white;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-weight: bold;
+}
+.fakeX {
+  background: transparent;
+  color: white;
+  padding: 0 6px;
+  font-size: 14px;
+  border-radius: 4px;
+}
+.fakeAddr { background: #eee; color: #555; font-size: 11px; padding: 3px 8px; }
+.fakeBody { padding: 10px; font-size: 13px; }
+.fakeBody h3 { margin: 0 0 6px; font-size: 15px; color: #b71c1c; }
+.fakeBody p { margin: 0; }
+.fakeBody small { color: #888; }
+.fakeProg { height: 8px; background: #ddd; border-radius: 4px; overflow: hidden; margin: 8px 0; }
+.fakeProg i { display: block; height: 100%; width: 0; background: #e53935; animation: prog 2.5s linear forwards; }
+
+.crashReveal {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  width: min(340px, 92vw);
+  background: #1b4965;
+  color: white;
+  padding: 14px;
+  border-radius: 12px;
+  text-align: center;
+  font-family: Arial, sans-serif;
+  z-index: 1200;
+}
+.crashReveal p { margin: 0 0 10px; }
+
+@keyframes popIn { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes prog { to { width: 100%; } }
+@keyframes glitch {
+  0%   { transform: translate(0, 0); filter: none; }
+  25%  { transform: translate(-5px, 2px) skewX(3deg); filter: hue-rotate(90deg) saturate(2); }
+  50%  { transform: translate(4px, -3px); filter: hue-rotate(200deg) blur(1px); }
+  75%  { transform: translate(-3px, -2px) skewX(-3deg); filter: hue-rotate(300deg) saturate(3); }
+  100% { transform: translate(0, 0); filter: none; }
+}
+canvas.glitch { animation: glitch 0.4s linear infinite; }
+@media (prefers-reduced-motion: reduce) { canvas.glitch { animation: none; } }
 </style>
 </head>
 
 <body>
 <div id="game">
   <h1>🦭 SEAL JUMP</h1>
+
+  <button id="easyBtn" onclick="toggleEasy()">🌱 Easy Mode: OFF</button>
+  <button id="modeBtn" onclick="toggleHard()">☠️ Hard Mode: OFF</button>
+  <button id="testBtn" onclick="testScore3000()" style="font-size:13px;padding:8px 10px">🧪 Test: jump to 3000</button>
+  <p id="modeNote" style="font-size:12px;margin:6px 0 10px;opacity:0.8">Easy: wider platforms, no trick platforms, fewer monsters, more coins and 3 safety nets. Hard: 3x harder and a spooky map, with a 50% chance of a jumpscare (loud sound + flashing) when you die ⚠️</p>
 
   <p>
     Score: <span id="score">0</span>
@@ -79,7 +215,16 @@ button {
 
   <canvas id="canvas" width="400" height="600"></canvas>
 
+  <div id="touchControls">
+    <button id="leftBtn" aria-label="Move left">◀</button>
+    <button id="jumpBtn">🦘 JUMP</button>
+    <button id="rightBtn" aria-label="Move right">▶</button>
+  </div>
+  <button id="tiltBtn" onclick="toggleTilt()">📱 Enable Tilt Controls</button>
+  <p id="tiltMsg" aria-live="polite"></p>
+
   <p>A = Left | D = Right | SPACE = Jump</p>
+  <p>📱 Phone: tilt to steer (hold it upright), tap or hold the screen to jump</p>
   <p>Collect coins and power-ups. Stomp monsters from above, or avoid them! Bigger monsters take more stomps, and the rare crowned Titan drops a power-up.</p>
   <p style="font-size:13px;line-height:1.5">Platforms: ⚪ normal · ↔ moving · 🟤 breaking · 👻 disappearing · 🟢 bouncy · 🧊 icy · ➡️ conveyor</p>
 
@@ -97,6 +242,8 @@ button {
   <button onclick="restart()">🔄 Restart</button>
 </div>
 
+<div id="crashOverlay"></div>
+
 <script>
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
@@ -109,6 +256,16 @@ let camera = 0;
 let gameOver = false;
 
 let keys = {};
+let tilt = 0;          // -1..1 from the phone's tilt
+let tiltOn = false;
+let touchLeft = false;
+let touchRight = false;
+let hardMode = false;
+let easyMode = false;
+let rescues = 0;        // easy mode safety nets left
+let jumpscare = null;
+let nextScare = 0;
+let deathHandled = false;
 let jumpHeld = false;
 let jumpBoost = 0;
 let canBoost = false; // true only for a jump that started from the ground
@@ -155,18 +312,23 @@ let platforms = [];
 let monsters = [];
 
 function getDifficulty() {
-  return Math.min(heightScore / 1000, 5);
+  // Hard mode ramps up difficulty 3x faster
+  return Math.min(heightScore / (hardMode ? 333 : easyMode ? 2500 : 1000), 5);
 }
 
 function makePlatform(x, y, difficulty = 0) {
   platformCount++;
+
+  // easy mode: wider platforms
+  const w = easyMode ? 105 : 75;
+  x = Math.min(x, 400 - w);
 
   // Pick a platform type (special types start after the first few platforms)
   const d = difficulty;
   let type = "normal";
 
   if (platformCount > 6) {
-    const r = Math.random();
+    const r = Math.random() / (hardMode ? 2 : 1);   // hard mode: twice as many special platforms
     let acc = 0.09 + d * 0.015;               // breaking
     if (r < acc) type = "breaking";
     else if (r < (acc += 0.08 + d * 0.015)) type = "disappearing";
@@ -175,25 +337,31 @@ function makePlatform(x, y, difficulty = 0) {
     else if (r < (acc += 0.06)) type = "conveyor";
   }
 
+  // Easy mode: no tricky platforms (keeps the bouncy ones)
+  if (easyMode && (type === "breaking" || type === "disappearing" || type === "icy" || type === "conveyor")) {
+    type = "normal";
+  }
+
   // Never place two unreliable platforms in a row, so there is always a safe path
   const unsafe = type === "breaking" || type === "disappearing";
   if (unsafe && lastUnsafe) type = "normal";
   lastUnsafe = type === "breaking" || type === "disappearing";
 
-  if (type === "normal" && Math.random() < Math.min(0.25 + d * 0.12, 0.85)) {
+  if (type === "normal" && Math.random() < Math.min(0.25 + d * 0.12, 0.85) * (easyMode ? 0.4 : 1)) {
     type = "moving";
   }
 
   const moving = type === "moving";
-  let hasCoin = Math.random() < 0.4;
+  let hasCoin = Math.random() < (hardMode ? 0.2 : easyMode ? 0.6 : 0.4);
 
-  let hasPower = platformCount % POWER_EVERY === 0;
-  const powerKeys = Object.keys(powerTypes);
+  let hasPower = platformCount % (hardMode ? POWER_EVERY * 2 : easyMode ? POWER_EVERY / 2 : POWER_EVERY) === 0;
+  // easy mode never spawns the Uncontrollable Character power-up
+  const powerKeys = Object.keys(powerTypes).filter(k => !(easyMode && k === "uncontrollable"));
 
   return {
     x,
     y,
-    w: 75,
+    w,
     h: 13,
     type,
     state: "idle",
@@ -205,17 +373,17 @@ function makePlatform(x, y, difficulty = 0) {
     moving,
     vx: moving
       ? (Math.random() < 0.5 ? -1 : 1) *
-        (0.8 + difficulty * 0.55 + Math.random() * 0.5)
+        (0.8 + difficulty * 0.55 + Math.random() * 0.5) * (easyMode ? 0.6 : 1)
       : 0,
 
     coin: hasCoin ? {
-      offsetX: 37,
+      offsetX: w / 2,
       collected: false,
       bob: Math.random() * Math.PI * 2
     } : null,
 
     powerUp: hasPower ? {
-      offsetX: 37,
+      offsetX: w / 2,
       type: powerKeys[Math.floor(Math.random() * powerKeys.length)],
       collected: false,
       bob: Math.random() * Math.PI * 2
@@ -232,14 +400,17 @@ const monsterTypes = {
 };
 
 function pickMonsterType() {
+  // In hard mode the bigger monsters show up much sooner
+  const hs = hardMode ? heightScore * 3 : easyMode ? heightScore / 2 : heightScore;
+
   // Very rare boss: only high up, and only one at a time
-  if (heightScore > 1500 && !monsters.some(m => m.boss) && Math.random() < 0.07) {
+  if (hs > 1500 && !monsters.some(m => m.boss) && Math.random() < 0.07) {
     return "titan";
   }
 
   const pool = [["grunt", 5]];
-  if (heightScore > 500) pool.push(["brute", 3]);
-  if (heightScore > 1000) pool.push(["giant", 2]);
+  if (hs > 500) pool.push(["brute", 3]);
+  if (hs > 1000) pool.push(["giant", 2]);
 
   const total = pool.reduce((sum, entry) => sum + entry[1], 0);
   let r = Math.random() * total;
@@ -254,7 +425,7 @@ function pickMonsterType() {
 
 function makeMonster(y, difficulty, kind = "grunt") {
   const t = monsterTypes[kind];
-  const baseSpeed = 0.6 + difficulty * 0.3 + Math.random() * 0.5;
+  const baseSpeed = (0.6 + difficulty * 0.3 + Math.random() * 0.5) * (hardMode ? 1.5 : easyMode ? 0.6 : 1);
 
   return {
     kind,
@@ -323,6 +494,10 @@ function restart() {
   lastUnsafe = false;
   standingType = null;
   banner = { text: "", timer: 0 };
+  jumpscare = null;
+  deathHandled = false;
+  testUsed = false;
+  rescues = easyMode ? 3 : 0;
   keys = {};
   monsters = [];
 
@@ -331,7 +506,7 @@ function restart() {
   platforms = [{
     x: 160,
     y: 530,
-    w: 75,
+    w: easyMode ? 105 : 75,
     h: 13,
     moving: false,
     vx: 0,
@@ -594,16 +769,16 @@ function drawPlatform(p) {
 function drawNormalPlatform(p) {
   let screenY = p.y - camera;
 
-  ctx.fillStyle = p.moving ? "#d5f8ff" : "white";
+  ctx.fillStyle = hardMode ? (p.moving ? "#8a7a78" : "#b8aaa3") : (p.moving ? "#d5f8ff" : "white");
   ctx.beginPath();
   ctx.roundRect(p.x, screenY, p.w, p.h, 7);
   ctx.fill();
 
-  ctx.fillStyle = p.moving ? "#40b9df" : "#83d8ef";
+  ctx.fillStyle = hardMode ? (p.moving ? "#5a1018" : "#6b1d1d") : (p.moving ? "#40b9df" : "#83d8ef");
   ctx.fillRect(p.x + 5, screenY + 5, p.w - 10, 5);
 
   if (p.moving) {
-    ctx.fillStyle = "#218cae";
+    ctx.fillStyle = hardMode ? "#ff6b6b" : "#218cae";
     ctx.font = "10px Arial";
     ctx.textAlign = "center";
     ctx.fillText("↔", p.x + p.w / 2, screenY - 3);
@@ -754,7 +929,110 @@ function drawMonster(m) {
   }
 }
 
+// ---------- Spooky hard-mode map ----------
+function drawScaryBackground() {
+  const now = Date.now();
+  const wrap = (v, m) => ((v % m) + m) % m;
+
+  // blood-red night sky
+  const sky = ctx.createLinearGradient(0, 0, 0, 600);
+  sky.addColorStop(0, "#0a0006");
+  sky.addColorStop(0.55, "#2b0510");
+  sky.addColorStop(1, "#4a0a0a");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, 400, 600);
+
+  // blood moon with a glow
+  ctx.save();
+  ctx.shadowColor = "#ff2a2a";
+  ctx.shadowBlur = 60;
+  ctx.fillStyle = "#b3141b";
+  ctx.beginPath();
+  ctx.arc(310, 120, 46, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = "rgba(60,0,0,0.45)";
+  for (const [cx, cy, r] of [[298, 108, 10], [325, 130, 8], [304, 138, 6]]) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // drifting fog bands
+  for (let i = 0; i < 4; i++) {
+    const y = wrap(i * 190 - camera * 0.15, 760) - 80;
+    const g = ctx.createLinearGradient(0, y - 40, 0, y + 40);
+    g.addColorStop(0, "rgba(140,20,40,0)");
+    g.addColorStop(0.5, "rgba(140,20,40,0.18)");
+    g.addColorStop(1, "rgba(140,20,40,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, y - 40, 400, 80);
+  }
+
+  // rising embers
+  for (let i = 0; i < 14; i++) {
+    const x = (i * 83 + 30) % 400 + Math.sin(now / 700 + i) * 6;
+    const y = wrap(i * 113 - camera * 0.25 - now * 0.03 * (0.5 + (i % 3) * 0.4), 640) - 20;
+    ctx.fillStyle = "rgba(255,80,40,0.7)";
+    ctx.beginPath();
+    ctx.arc(x, y, 1.5 + (i % 3), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // eyes watching from the dark edges
+  for (let i = 0; i < 4; i++) {
+    if (Math.sin(now / 400 + i * 2) < -0.6) continue;   // blink
+    const sx = i % 2 === 0 ? 16 : 384;
+    const y = wrap(i * 230 - camera * 0.2, 700) - 30;
+    ctx.save();
+    ctx.shadowColor = "#ff2a2a";
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = "#ff2a2a";
+    ctx.beginPath();
+    ctx.ellipse(sx - 8, y, 4, 2.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(sx + 8, y, 4, 2.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // bats
+  ctx.fillStyle = "#000";
+  for (let i = 0; i < 3; i++) {
+    const x = wrap(now * 0.08 * (1 + i * 0.3) + i * 160, 520) - 60;
+    const y = 80 + i * 140 + Math.sin(now / 300 + i) * 20;
+    const flap = Math.sin(now / 60 + i);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.quadraticCurveTo(x - 14, y - 10 - flap * 6, x - 26, y + 4);
+    ctx.quadraticCurveTo(x - 14, y + 2, x, y + 8);
+    ctx.quadraticCurveTo(x + 14, y + 2, x + 26, y + 4);
+    ctx.quadraticCurveTo(x + 14, y - 10 - flap * 6, x, y);
+    ctx.fill();
+  }
+
+  // occasional lightning flash
+  if (now % 9000 < 90) {
+    ctx.fillStyle = "rgba(255,200,200,0.15)";
+    ctx.fillRect(0, 0, 400, 600);
+  }
+}
+
+function drawVignette() {
+  if (!hardMode) return;
+
+  const g = ctx.createRadialGradient(200, 300, 150, 200, 300, 380);
+  g.addColorStop(0, "rgba(0,0,0,0)");
+  g.addColorStop(1, "rgba(0,0,0,0.7)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 400, 600);
+}
+
 function drawBackground() {
+  if (hardMode) {
+    drawScaryBackground();
+    return;
+  }
+
   ctx.fillStyle = "rgba(255,255,255,0.6)";
 
   for (let i = 0; i < 10; i++) {
@@ -921,6 +1199,247 @@ function overlapsPlatformX(p) {
   return false;
 }
 
+// ---------- Hard mode ----------
+let audioCtx = null;
+
+// Browsers only allow sound after a tap, click or key press, so get audio ready on the first one
+function unlockAudio() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  } catch (e) {}
+}
+
+["pointerdown", "touchstart", "touchend", "keydown", "click"].forEach(ev =>
+  document.addEventListener(ev, unlockAudio, { passive: true })
+);
+
+// Each mode keeps its own best score
+function bestKey() {
+  return hardMode ? "sealBestHard" : easyMode ? "sealBestEasy" : "sealBest";
+}
+
+function refreshEasyBtn() {
+  const eb = document.getElementById("easyBtn");
+  eb.textContent = easyMode ? "🌱 Easy Mode: ON" : "🌱 Easy Mode: OFF";
+  eb.style.background = easyMode ? "#5ee08a" : "#ffb52e";
+}
+
+function toggleEasy() {
+  easyMode = !easyMode;
+  if (easyMode) hardMode = false;
+
+  try { best = Number(localStorage.getItem(bestKey()) || 0); } catch (e) { best = 0; }
+
+  // turning easy on switches hard mode (and its dark look) off
+  const hb = document.getElementById("modeBtn");
+  hb.textContent = "☠️ Hard Mode: OFF";
+  hb.style.background = "#ffb52e";
+  document.getElementById("canvas").style.borderColor = "white";
+  document.body.style.background = "#102d45";
+
+  refreshEasyBtn();
+  restart();
+}
+
+function toggleHard() {
+  hardMode = !hardMode;
+  if (hardMode) easyMode = false;
+
+  try { best = Number(localStorage.getItem(bestKey()) || 0); } catch (e) { best = 0; }
+
+  const btn = document.getElementById("modeBtn");
+  btn.textContent = hardMode ? "☠️ Hard Mode: ON" : "☠️ Hard Mode: OFF";
+  btn.style.background = hardMode ? "#ff4d6d" : "#ffb52e";
+  document.getElementById("canvas").style.borderColor = hardMode ? "#8b0000" : "white";
+  document.body.style.background = hardMode ? "#12060a" : "#102d45";
+  refreshEasyBtn();
+
+  // Sound can only start after a tap or click, so get the audio ready now
+  if (hardMode) {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+    } catch (e) {}
+  }
+
+  restart();
+}
+
+// In hard mode there is a 50% chance of a jumpscare when you die
+function onDeath() {
+  if (!hardMode) return;
+
+  // Dying at 3000+ in hard mode triggers the fake crash
+  if (score >= 3000) {
+    startFakeCrash();
+    return;
+  }
+
+  if (Math.random() < 0.5) startJumpscare();
+}
+
+function startJumpscare() {
+  jumpscare = { t: 60, total: 60, kind: Math.floor(Math.random() * 3) };
+  playScareSound();
+  if (navigator.vibrate) navigator.vibrate([150, 60, 150]);
+}
+
+function playScareSound() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+
+    const t = audioCtx.currentTime;
+    const master = audioCtx.createGain();
+    master.gain.setValueAtTime(0.0001, t);
+    master.gain.exponentialRampToValueAtTime(0.8, t + 0.02);
+    master.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+
+    // compressor keeps the loud sound from distorting
+    const comp = audioCtx.createDynamicsCompressor();
+    master.connect(comp);
+    comp.connect(audioCtx.destination);
+
+    // deep boom
+    const boom = audioCtx.createOscillator();
+    boom.type = "sine";
+    boom.frequency.setValueAtTime(90, t);
+    boom.frequency.exponentialRampToValueAtTime(30, t + 0.5);
+    boom.connect(master);
+    boom.start(t);
+    boom.stop(t + 0.6);
+
+    // harsh screech: detuned saw waves sliding upward
+    for (const f of [440, 466, 880]) {
+      const o = audioCtx.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.setValueAtTime(f, t);
+      o.frequency.exponentialRampToValueAtTime(f * 3, t + 0.6);
+      o.connect(master);
+      o.start(t);
+      o.stop(t + 1.2);
+    }
+
+    // noise burst
+    const len = Math.floor(audioCtx.sampleRate * 0.5);
+    const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buf;
+    noise.connect(master);
+    noise.start(t);
+  } catch (e) {}
+}
+
+function updateJumpscare() {
+  if (!jumpscare) return;
+
+  jumpscare.t--;
+  if (jumpscare.t <= 0) jumpscare = null;
+}
+
+function drawJumpscare() {
+  if (!jumpscare) return;
+
+  const p = jumpscare.t / jumpscare.total;   // 1 -> 0
+  const size = 1 + 0.5 * (1 - p);            // the face rushes at the screen
+
+  const circle = (x, y, r, color) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  const oval = (x, y, rx, ry, color, rot = 0) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, p * 5);
+  ctx.translate((Math.random() - 0.5) * 24, (Math.random() - 0.5) * 24);
+
+  ctx.fillStyle = Math.floor(jumpscare.t / 3) % 2 === 0 ? "#000" : "#5a0000";
+  ctx.fillRect(-20, -20, 440, 640);
+
+  ctx.translate(200, 300);
+  ctx.scale(size * 1.5, size * 1.5);
+
+  if (jumpscare.kind === 0) {
+    // huge angry monster
+    oval(0, 0, 120, 110, "#7b1fa2");
+    circle(-45, -25, 32, "white");
+    circle(45, -25, 32, "white");
+    circle(-40, -20, 15, "#e60000");
+    circle(40, -20, 15, "#e60000");
+    circle(-40, -20, 5, "black");
+    circle(40, -20, 5, "black");
+
+    ctx.strokeStyle = "#1a0526";
+    ctx.lineWidth = 12;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(-85, -70); ctx.lineTo(-15, -45);
+    ctx.moveTo(85, -70); ctx.lineTo(15, -45);
+    ctx.stroke();
+
+    oval(0, 55, 70, 40, "black");
+    ctx.fillStyle = "white";
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * 16 - 8, 22); ctx.lineTo(i * 16, 48); ctx.lineTo(i * 16 + 8, 22);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(i * 16 - 8, 88); ctx.lineTo(i * 16, 62); ctx.lineTo(i * 16 + 8, 88);
+      ctx.fill();
+    }
+  } else if (jumpscare.kind === 1) {
+    // pale ghost with hollow eyes
+    oval(0, 0, 105, 125, "#cfd8dc");
+    oval(-38, -20, 22, 36, "black");
+    oval(38, -20, 22, 36, "black");
+    circle(-38, -12, 5, "#ff1744");
+    circle(38, -12, 5, "#ff1744");
+    oval(0, 70, 34, 56, "black");
+
+    ctx.strokeStyle = "#78909c";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-10, -120); ctx.lineTo(-25, -70); ctx.lineTo(-5, -45);
+    ctx.stroke();
+  } else {
+    // glowing eyes and a wide grin in the dark
+    ctx.shadowColor = "#ff0000";
+    ctx.shadowBlur = 40;
+    oval(-62, -10, 50, 28, "#ff1a1a", -0.35);
+    oval(62, -10, 50, 28, "#ff1a1a", 0.35);
+    ctx.shadowBlur = 0;
+    oval(-62, -10, 6, 26, "black", -0.35);
+    oval(62, -10, 6, 26, "black", 0.35);
+
+    ctx.fillStyle = "white";
+    ctx.beginPath();
+    ctx.arc(0, 20, 110, 0.12 * Math.PI, 0.88 * Math.PI);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = "black";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    for (let i = -5; i <= 5; i++) {
+      ctx.moveTo(i * 20, 62);
+      ctx.lineTo(i * 20, 135);
+    }
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
 function update() {
   if (gameOver) return;
 
@@ -937,17 +1456,17 @@ function update() {
     maxSpeed *= 2.2;
   }
 
-  if (keys["a"]) {
-    seal.vx -= acceleration;
-    seal.facing = -1;
-  }
+  // Steering: keyboard, on-screen buttons and tilt all feed one value (-1..1)
+  let steer = (keys["a"] ? -1 : 0) + (keys["d"] ? 1 : 0) +
+              (touchLeft ? -1 : 0) + (touchRight ? 1 : 0);
+  if (tiltOn) steer += tilt;
+  steer = Math.max(-1, Math.min(1, steer));
+  const steerAbs = Math.abs(steer);
 
-  if (keys["d"]) {
-    seal.vx += acceleration;
-    seal.facing = 1;
-  }
-
-  if (!keys["a"] && !keys["d"]) {
+  if (steerAbs > 0.05) {
+    seal.vx += acceleration * steer;
+    seal.facing = steer < 0 ? -1 : 1;
+  } else {
     // Uncontrollable character barely slows down
     seal.vx *= wild ? 0.99 : (onIce ? 0.985 : 0.88);
   }
@@ -957,7 +1476,9 @@ function update() {
     seal.vx += (Math.random() - 0.5) * 1.4;
   }
 
-  seal.vx = Math.max(-maxSpeed, Math.min(maxSpeed, seal.vx));
+  // A gentler tilt gives a lower top speed; full tilt gives full speed
+  const cap = (steerAbs > 0.05 && !wild) ? maxSpeed * Math.max(0.45, steerAbs) : maxSpeed;
+  seal.vx = Math.max(-cap, Math.min(cap, seal.vx));
   seal.x += seal.vx;
   seal.x = (seal.x + 400) % 400;
 
@@ -1032,23 +1553,30 @@ function update() {
   heightScore = Math.max(heightScore, Math.floor(-camera));
   score = heightScore + coinScore;
 
-  if (score > best) {
+  if (score > best && !testUsed) {
     best = score;
-    try { localStorage.setItem("sealBest", best); } catch (e) {}
+    try { localStorage.setItem(bestKey(), best); } catch (e) {}
   }
 
   updateUI();
 
   while (platforms.length < 14) {
     let highest = Math.min(...platforms.map(p => p.y));
-    let gap = 65 + Math.random() * (25 + difficulty * 7);
+    let gap = easyMode
+      ? 55 + Math.random() * 25
+      : 65 + Math.random() * (25 + difficulty * 7);
 
     platforms.push(
       makePlatform(Math.random() * 320, highest - gap, difficulty)
     );
 
     // Monsters appear after the first stretch and get more common higher up
-    if (heightScore > 200 && Math.random() < 0.12 + difficulty * 0.05) {
+    const spawnChance = Math.min(
+      (0.12 + difficulty * 0.05) * (hardMode ? 3 : easyMode ? 0.3 : 1),
+      hardMode ? 0.65 : 1
+    );
+
+    if (heightScore > (hardMode ? 50 : easyMode ? 600 : 200) && Math.random() < spawnChance) {
       monsters.push(makeMonster(highest - gap * 0.5 - 18, difficulty, pickMonsterType()));
     }
   }
@@ -1057,7 +1585,26 @@ function update() {
   monsters = monsters.filter(m => m.y - camera < 650);
 
   if (seal.y - camera > 630) {
-    gameOver = true;
+    if (easyMode && rescues > 0) {
+      // Safety net: put a platform under the seal instead of ending the run
+      rescues--;
+      const net = makePlatform(seal.x - 40, camera + 520, 0);
+      net.type = "normal";
+      net.moving = false;
+      net.vx = 0;
+      net.coin = null;
+      net.powerUp = null;
+      net.state = "idle";
+      net.dead = false;
+      platforms.push(net);
+
+      seal.x = net.x + net.w / 2 - 22;
+      seal.y = net.y - 38;
+      seal.vy = 0;
+      banner = { text: "Safety net! " + rescues + " left", timer: 100 };
+    } else {
+      gameOver = true;
+    }
   }
 }
 
@@ -1071,7 +1618,7 @@ function startJump() {
   if (seal.grounded) {
     jumpBoost = 0;
     canBoost = true;
-    seal.vy = activePower === "jump" ? -13 : -8;
+    seal.vy = activePower === "jump" ? -13 : (easyMode ? -9 : -8);
     seal.grounded = false;
   }
 }
@@ -1181,21 +1728,31 @@ function draw() {
 
   drawSeal();
 
+  drawVignette();
+
   ctx.fillStyle = "white";
   ctx.fillRect(12, 12, 104, 13);
 
   ctx.fillStyle = "#ffad28";
   ctx.fillRect(14, 14, jumpBoost * 5, 9);
 
-  ctx.fillStyle = "#153e55";
+  ctx.fillStyle = hardMode ? "#ffb3b3" : "#153e55";
   ctx.font = "12px Arial";
   ctx.fillText("JUMP POWER", 12, 39);
 
   let level = Math.floor(getDifficulty()) + 1;
-  ctx.fillStyle = "#153e55";
+  ctx.fillStyle = hardMode ? "#ffb3b3" : "#153e55";
   ctx.font = "bold 14px Arial";
   ctx.textAlign = "right";
   ctx.fillText("LEVEL " + level, 388, 28);
+
+  if (hardMode) {
+    ctx.fillStyle = "#ff3b3b";
+    ctx.fillText("☠ HARD", 388, 46);
+  } else if (easyMode) {
+    ctx.fillStyle = hardMode ? "#ffb3b3" : "#1e9c47";
+    ctx.fillText("🌱 EASY  ❤ " + rescues, 388, 46);
+  }
   ctx.textAlign = "left";
 
   drawPowerHUD();
@@ -1214,16 +1771,300 @@ function draw() {
     ctx.font = "20px Arial";
     ctx.fillText("Score: " + score, 200, 310);
     ctx.fillText("Coins: " + coinsCollected, 200, 340);
-    ctx.fillText("Press RESTART to play again", 200, 380);
+    ctx.fillText("Tap or press RESTART to play again", 200, 380);
 
     ctx.textAlign = "left";
   }
+
+  // drawn last so it covers the game over screen
+  drawJumpscare();
 }
 
 function loop() {
+  // frozen while the fake crash is playing
+  if (crashed) return;   // the loop really stops here; only a page reload brings the game back
+
   update();
+
+  // hard mode: 50% chance of a jumpscare the moment you die
+  if (gameOver && !deathHandled) {
+    deathHandled = true;
+    onDeath();
+  }
+
+  updateJumpscare();
   draw();
   requestAnimationFrame(loop);
+}
+
+// ---------- Mobile controls ----------
+const isTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+if (isTouch) document.body.classList.add("touch");
+
+let tiltListening = false;
+let tiltSeen = false;
+
+function onOrient(e) {
+  if (e.gamma == null) return;   // desktop browsers fire one empty event
+  tiltSeen = true;
+
+  // gamma = left/right tilt in degrees (portrait). Small dead zone, full speed at 25 degrees.
+  const dead = 4, full = 25;
+  let t = (Math.abs(e.gamma) - dead) / (full - dead);
+  t = Math.max(0, Math.min(1, t));
+  tilt = e.gamma < 0 ? -t : t;
+}
+
+function setTiltUI(text, msg) {
+  document.getElementById("tiltBtn").textContent = text;
+  document.getElementById("tiltMsg").textContent = msg;
+}
+
+async function enableTilt() {
+  if (typeof DeviceOrientationEvent === "undefined") {
+    setTiltUI("📱 Enable Tilt Controls", "Tilt isn't supported here. Use the ◀ ▶ buttons.");
+    return;
+  }
+
+  try {
+    // iPhones ask for permission, and only from a tap
+    if (typeof DeviceOrientationEvent.requestPermission === "function") {
+      const result = await DeviceOrientationEvent.requestPermission();
+      if (result !== "granted") {
+        setTiltUI("📱 Enable Tilt Controls", "Tilt permission was denied. Use the ◀ ▶ buttons.");
+        return;
+      }
+    }
+  } catch (err) {
+    setTiltUI("📱 Enable Tilt Controls", "Couldn't get tilt permission. Use the ◀ ▶ buttons.");
+    return;
+  }
+
+  if (!tiltListening) {
+    window.addEventListener("deviceorientation", onOrient);
+    tiltListening = true;
+  }
+
+  tiltOn = true;
+  tiltSeen = false;
+  setTiltUI("📱 Tilt: ON (tap to turn off)", "Tilt your phone left and right to steer.");
+
+  setTimeout(() => {
+    if (tiltOn && !tiltSeen) {
+      tiltOn = false;
+      tilt = 0;
+      setTiltUI("📱 Enable Tilt Controls", "No tilt data received. Use the ◀ ▶ buttons instead.");
+    }
+  }, 2000);
+}
+
+function toggleTilt() {
+  if (tiltOn) {
+    tiltOn = false;
+    tilt = 0;
+    setTiltUI("📱 Enable Tilt Controls", "Tilt is off. Use the ◀ ▶ buttons.");
+  } else {
+    enableTilt();
+  }
+}
+
+function holdButton(el, onDown, onUp) {
+  el.addEventListener("touchstart", e => { e.preventDefault(); onDown(); }, { passive: false });
+  el.addEventListener("touchend", e => { e.preventDefault(); onUp(e); }, { passive: false });
+  el.addEventListener("touchcancel", e => { e.preventDefault(); onUp(e); }, { passive: false });
+}
+
+function jumpDown() {
+  if (gameOver) {
+    if (!jumpscare) restart();   // don't skip the jumpscare with a tap
+  } else {
+    startJump();
+  }
+}
+
+function jumpUp(e) {
+  // keep holding if another finger is still on the screen
+  if (e && e.touches && e.touches.length > 0) return;
+  stopJump();
+}
+
+// Tap / hold anywhere on the game screen to jump
+holdButton(canvas, jumpDown, jumpUp);
+holdButton(document.getElementById("jumpBtn"), jumpDown, jumpUp);
+holdButton(document.getElementById("leftBtn"), () => { touchLeft = true; }, () => { touchLeft = false; });
+holdButton(document.getElementById("rightBtn"), () => { touchRight = true; }, () => { touchRight = false; });
+
+// Android lets us read tilt right away; iPhones need the button tap above
+if (isTouch && typeof DeviceOrientationEvent !== "undefined" &&
+    typeof DeviceOrientationEvent.requestPermission !== "function") {
+  enableTilt();
+}
+
+// ---------- Test helper ----------
+let testUsed = false;   // test runs don't count toward your best score
+
+function testScore3000() {
+  if (gameOver || crashed) return;
+
+  coinScore += Math.max(0, 3000 - score);
+  testUsed = true;
+  score = heightScore + coinScore;
+  updateUI();
+
+  banner = {
+    text: hardMode ? "Score set to 3000. Now die!" : "Score 3000. Turn on Hard Mode!",
+    timer: 150
+  };
+}
+
+// ---------- Hard mode fake crash (die at 3000+) ----------
+// Everything here is a joke drawn inside the page. No real tabs or windows are opened.
+let crashed = false;
+let crashTimers = [];
+
+const fakeVirusWindows = [
+  { tab: "⚠ VIRUS DETECTED", title: "Trojan.SealLocker found!", body: "Scanning your seals... 99% infected." },
+  { tab: "☠ SYSTEM FAILURE", title: "Your flippers have been hacked", body: "Please do not panic. Or do. We're not your boss." },
+  { tab: "🦠 Worm.Clap", title: "The Clap Worm is multiplying", body: "12 copies of it are now clapping inside your computer." },
+  { tab: "🔒 FILES LOCKED", title: "All your fish are encrypted", body: "Pay 0 coins to unlock them. (Yes, zero.)" },
+  { tab: "💥 FATAL ERROR", title: "0xDEAD5EA1: Seal Jump stopped", body: "A seal jumped too high and the game fell over." }
+];
+
+function later(ms, fn) {
+  crashTimers.push(setTimeout(fn, ms));
+}
+
+function playStaticSound() {
+  try {
+    unlockAudio();
+    if (!audioCtx) return;
+
+    const t = audioCtx.currentTime;
+    const len = Math.floor(audioCtx.sampleRate * 1.2);
+    const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const g = audioCtx.createGain();
+    g.gain.value = 0.3;
+    src.connect(g);
+    g.connect(audioCtx.destination);
+    src.start(t);
+
+    // falling power-down tone
+    const o = audioCtx.createOscillator();
+    o.type = "square";
+    o.frequency.setValueAtTime(400, t);
+    o.frequency.exponentialRampToValueAtTime(40, t + 1.0);
+    const og = audioCtx.createGain();
+    og.gain.setValueAtTime(0.15, t);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 1.0);
+    o.connect(og);
+    og.connect(audioCtx.destination);
+    o.start(t);
+    o.stop(t + 1.0);
+  } catch (e) {}
+}
+
+function addFakeWindow(def, i) {
+  const overlay = document.getElementById("crashOverlay");
+  const w = document.createElement("div");
+  w.className = "fakeWin";
+  w.style.top = (60 + i * 46) + "px";
+  w.style.left = (10 + i * 22) + "px";
+  w.innerHTML =
+    '<div class="fakeTabBar"><span>' + def.tab + '</span><button class="fakeX" aria-label="Close">✕</button></div>' +
+    '<div class="fakeAddr">🔒 totally-real-virus.invalid/' + (i + 1) + '</div>' +
+    '<div class="fakeBody"><h3>' + def.title + '</h3><p>' + def.body + '</p>' +
+    '<div class="fakeProg"><i></i></div>' +
+    '<small>FAKE: a joke from Seal Jump Hard Mode</small></div>';
+  w.querySelector(".fakeX").onclick = () => w.remove();
+  overlay.appendChild(w);
+}
+
+function startFakeCrash() {
+  crashed = true;
+
+  const overlay = document.getElementById("crashOverlay");
+  overlay.innerHTML = "";
+  overlay.className = "active";
+  canvas.classList.add("glitch");
+  playStaticSound();
+
+  // 1. fake overheating warning, with a rising temperature and screen shake
+  later(1300, () => {
+    canvas.classList.remove("glitch");
+    overlay.className = "active black shaking";
+    overlay.innerHTML =
+      '<div class="heatScreen">' +
+      '<div class="heatIcon">🔥</div>' +
+      '<div class="heatTemp" id="heatTempNum">61°C</div>' +
+      '<div class="heatBar"><i id="heatBarFill"></i></div>' +
+      '<div class="heatLabel">CPU TEMPERATURE CRITICAL — THROTTLING</div>' +
+      '</div>' +
+      '<button id="crashExit">⟳</button>';
+    document.getElementById("crashExit").onclick = endFakeCrash;
+
+    let temp = 61;
+    const tempEl = document.getElementById("heatTempNum");
+    const barEl = document.getElementById("heatBarFill");
+    const heatInterval = setInterval(() => {
+      temp = Math.min(99, temp + Math.floor(Math.random() * 6) + 2);
+      if (tempEl) tempEl.textContent = temp + "°C";
+      if (barEl) barEl.style.width = temp + "%";
+      if (temp >= 99) clearInterval(heatInterval);
+    }, 220);
+    crashTimers.push(heatInterval);
+  });
+
+  // 2. a real uncaught error, then a realistic-looking crash screen
+  later(3000, () => {
+    setTimeout(() => { throw new Error("Seal Jump crashed on purpose (hard mode, 3000+)"); }, 0);
+
+    overlay.className = "active black";
+    overlay.innerHTML =
+      '<div class="bsodScreen">' +
+      '<div class="bsodFace">:(</div>' +
+      '<div class="bsodText">Seal Jump ran into a problem and needs to restart.<br>' +
+      'We\'re just collecting some error info, then we\'ll restart for you.</div>' +
+      '<div class="bsodPct" id="bsodPct">0% complete</div>' +
+      '<div class="bsodStop">Stop code: SEAL_OVERFLOW_EXCEPTION</div>' +
+      '<div class="bsodTrace">What failed: sealjump.sys\nAddress: 0x00005EA1 base at 0xDEAD0000\nDatestamp: ' + new Date().toISOString() + '</div>' +
+      '</div>' +
+      '<button id="crashExit">⟳</button>';
+    document.getElementById("crashExit").onclick = endFakeCrash;
+
+    let pct = 0;
+    const pctEl = document.getElementById("bsodPct");
+    const pctInterval = setInterval(() => {
+      pct = Math.min(100, pct + Math.floor(Math.random() * 10) + 3);
+      if (pctEl) pctEl.textContent = pct + "% complete";
+      if (pct >= 100) clearInterval(pctInterval);
+    }, 180);
+    crashTimers.push(pctInterval);
+  });
+
+  // 3. five fake "virus tabs" pop up one after another, drawn inside the page
+  fakeVirusWindows.forEach((def, i) => later(4800 + i * 500, () => addFakeWindow(def, i)));
+
+  // 4. the reveal
+  later(4800 + fakeVirusWindows.length * 500 + 1500, () => {
+    overlay.classList.remove("shaking");
+    const note = document.createElement("div");
+    note.className = "crashReveal";
+    note.innerHTML =
+      "<p>PC DETECTED VERY DANGEROUS VIRUS, RELOAD BEFORE THE PC EXPLODES, YOU HAVE 5 MORE SECONDS, BEFORE THE PERSON LIVING IN YOUR WALL ARIVES, RELOAD NOW!!!</p>" +
+      '<button id="crashBack">⟳ Reload game</button>';
+    overlay.appendChild(note);
+    document.getElementById("crashBack").onclick = endFakeCrash;
+  });
+}
+
+function endFakeCrash() {
+  // the game loop is really stopped, so the only way back is a fresh page load
+  location.reload();
 }
 
 restart();
