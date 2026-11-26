@@ -2034,7 +2034,7 @@ function startFakeCrash() {
       '<div class="bsodTrace">What failed: sealjump.sys\nAddress: 0x00005EA1 base at 0xDEAD0000\nDatestamp: ' + new Date().toISOString() + '</div>' +
       '</div>' +
       '<button id="crashExit">⟳</button>';
-    document.getElementById("crashExit").onclick = endFakeCrash;
+    document.getElementById("crashExit").onclick = startFakeCrash;
 
     let pct = 0;
     const pctEl = document.getElementById("bsodPct");
@@ -2058,7 +2058,7 @@ function startFakeCrash() {
       "<p>PC DETECTED VERY DANGEROUS VIRUS, RELOAD BEFORE THE PC EXPLODES, YOU HAVE 5 MORE SECONDS, BEFORE THE PERSON LIVING IN YOUR WALL ARIVES, RELOAD NOW!!!</p>" +
       '<button id="crashBack">⟳ Reload game</button>';
     overlay.appendChild(note);
-    document.getElementById("crashBack").onclick = endFakeCrash;
+    document.getElementById("crashBack").onclick = startFakeCrash
   });
 }
 
