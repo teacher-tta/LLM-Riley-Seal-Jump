@@ -1987,6 +1987,62 @@ function addFakeWindow(def, i) {
 function startFakeCrash() {
   crashed = true;
 
+  // Attempt to close the game tab after 15 seconds
+ // Show shutdown warning 5 seconds before closing
+setTimeout(() => {
+  const overlay = document.getElementById("crashOverlay");
+
+  const warning = document.createElement("div");
+  warning.style.cssText = `
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    background: rgba(0,0,0,0.95);
+    color: red;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    font-family: Arial, sans-serif;
+    padding: 20px;
+  `;
+
+  warning.innerHTML = `
+    <h1>⚠️ ERROR </h1>
+    <h2 style="color:white">THIS TAB WILL CRASH IN 5 SECONDS!</h2>
+    <h1 id="shutdownCountdown" style="font-size:70px">5</h1>
+    <p>Save your game. Shutdown is imminent.</p>
+  `;
+
+  overlay.appendChild(warning);
+
+  let countdown = 5;
+  const timer = setInterval(() => {
+    countdown--;
+
+    const number = document.getElementById("shutdownCountdown");
+    if (number) number.textContent = countdown;
+
+    if (countdown <= 0) {
+      clearInterval(timer);
+    }
+  }, 1000);
+}, 10000);
+
+// Attempt to close after 15 seconds
+setTimeout(() => {
+  window.close();
+
+  if (!window.closed) {
+    document.getElementById("crashOverlay").innerHTML =
+      '<div style="color:white;text-align:center;padding:100px 20px;font-family:Arial">' +
+      '<h1>💀 GAME TERMINATED</h1>' +
+      '<p>BRO!!! I F this browser!!!</p>' +
+      '</div>';
+  }
+}, 15000);
+
   const overlay = document.getElementById("crashOverlay");
   overlay.innerHTML = "";
   overlay.className = "active";
